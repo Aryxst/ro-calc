@@ -240,7 +240,7 @@
        <div>
         <span>By:</span>
         <a
-         class="font-semibold hover:underline"
+         class="font-bold hover:underline text-sm"
          href={Creator.CreatorProfileLink}
          rel="noopener noreferrer"
         >
@@ -250,9 +250,11 @@
        <span
         >Price: {Product.IsFree
          ? "FREE"
-         : !Product.IsForSale
+         : !Product.IsForSale && !Product.PriceInRobux
            ? "Not for sale"
-           : `${Product.PriceInRobux} Robux`}</span
+           : !Product.IsForSale && Product.PriceInRobux
+             ? `Not for sale(${Product.PriceInRobux} Robux)`
+             : `${Product.PriceInRobux} Robux`}</span
        >
       </div>
      </div>
