@@ -7,39 +7,23 @@
  const url = new URL(page.url);
 
  let userId = $state<number>();
+ let assetType = $state<keyof typeof RobloxAPITypes.AssetTypeEnum>("PASS");
 
  let inventoryInfo = $derived.by(async () => {
   const response = await fetch(
-   `https://www.roproxy.com/users/inventory/list-json?assetTypeId=34&cursor=&itemsPerPage=1000&pageNumber=1&userId=${userId}`,
-   {
-    cache: "force-cache",
-    headers: {
-     "Cache-Control": "max-age=86400",
-    },
-   }
+   `https://www.roproxy.com/users/inventory/list-json?assetTypeId=${RobloxAPITypes.AssetTypeEnum[assetType]}&cursor=&itemsPerPage=1000&pageNumber=1&userId=${userId}`
   );
   return (await response.json()) as RobloxAPITypes.InventoryAPIResponse;
  });
 
  let userInfo = $derived.by(async () => {
-  const response = await fetch(`https://users.roproxy.com/v1/users/${userId}`, {
-   cache: "force-cache",
-   headers: {
-    "Cache-Control": "max-age=300",
-   },
-  });
+  const response = await fetch(`https://users.roproxy.com/v1/users/${userId}`);
   return (await response.json()) as RobloxAPITypes.UserAPIResponse;
  });
 
  let avatarInfo = $derived.by(async () => {
   const response = await fetch(
-   `https://thumbnails.roproxy.com/v1/users/avatar?userIds=${userId}&size=420x420&format=Png&isCircular=false`,
-   {
-    cache: "force-cache",
-    headers: {
-     "Cache-Control": "max-age=300",
-    },
-   }
+   `https://thumbnails.roproxy.com/v1/users/avatar?userIds=${userId}&size=420x420&format=Png&isCircular=false`
   );
   return (await response.json()) as RobloxAPITypes.ThumnailAPIResponse;
  });
@@ -128,6 +112,13 @@
  }}
 >
  <input name="id" type="number" placeholder="User ID" value={userId} />
+ <select name="asset-type" bind:value={assetType}>
+  {#each Object.entries(RobloxAPITypes.AssetTypeEnum) as [value]}
+   <option {value}>
+    {value}
+   </option>
+  {/each}
+ </select>
  <button type="submit">Goto</button>
 </form>
 
@@ -216,7 +207,7 @@
     </span>
    </li>
    <li>
-    Passes Bought:
+    Total Bought:
     <span>
      {inventory.Data.Items.reduce((sum, item) => {
       if (item.Creator.Id == userId) return sum;
@@ -256,7 +247,13 @@
          {Creator.Name}
         </a>
        </div>
-       <span>Robux: {Product.PriceInRobux}</span>
+       <span
+        >Price: {Product.IsFree
+         ? "FREE"
+         : !Product.IsForSale
+           ? "Not for sale"
+           : `${Product.PriceInRobux} Robux`}</span
+       >
       </div>
      </div>
     </li>
