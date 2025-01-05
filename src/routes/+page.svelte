@@ -233,7 +233,11 @@
      <div>
       <div>
        <div title={Item.Name}>
-        <a href={Item.AbsoluteUrl} rel="noopener noreferrer">
+        <a
+         class="line-clamp-2 overflow-ellipsis"
+         href={Item.AbsoluteUrl}
+         rel="noopener noreferrer"
+        >
          {Item.Name}
         </a>
        </div>
