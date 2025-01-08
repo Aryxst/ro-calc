@@ -301,10 +301,10 @@
         {Item.Name}
        </a>
       </div>
-      <div class="overflow-hidden overflow-ellipsis whitespace-nowrap text-sm">
+      <div class="truncate text-sm">
        <span>By</span>
        <a
-        class="inline overflow-hidden overflow-ellipsis whitespace-nowrap font-bold hover:underline"
+        class="inline truncate font-bold hover:underline"
         href={Creator.CreatorProfileLink}
         rel="noopener noreferrer"
        >
