@@ -1,19 +1,25 @@
 <script lang="ts">
  import { page } from "$app/state";
- import { goto } from "$app/navigation";
+ import { Button } from "$lib/components/ui/button";
+ import { Checkbox } from "$lib/components/ui/checkbox";
+ import { Input } from "$lib/components/ui/input";
+ import * as Select from "$lib/components/ui/select";
+ import { Separator } from "$lib/components/ui/separator";
  import * as RobloxAPITypes from "$lib/roblox-api.types";
+ import * as Pagination from "$lib/components/ui/pagination";
  import { onMount } from "svelte";
 
- const url = new URL(page.url);
+ let itemsPerPage = $state<number>(20);
+ let currentPage = $state<number>(1);
 
  let userId = $state<number>();
  let assetType = $state<keyof typeof RobloxAPITypes.AssetTypeEnum>("PASS");
 
- let inventoryInfo = $derived.by(async () => {
+ let avatarInfo = $derived.by(async () => {
   const response = await fetch(
-   `https://www.roproxy.com/users/inventory/list-json?assetTypeId=${RobloxAPITypes.AssetTypeEnum[assetType]}&cursor=&itemsPerPage=1000&pageNumber=1&userId=${userId}`
+   `https://thumbnails.roproxy.com/v1/users/avatar?userIds=${userId}&size=420x420&format=Png&isCircular=false`,
   );
-  return (await response.json()) as RobloxAPITypes.InventoryAPIResponse;
+  return (await response.json()) as RobloxAPITypes.ThumnailAPIResponse;
  });
 
  let userInfo = $derived.by(async () => {
@@ -21,72 +27,87 @@
   return (await response.json()) as RobloxAPITypes.UserAPIResponse;
  });
 
- let avatarInfo = $derived.by(async () => {
+ let inventoryInfo = $derived.by(async () => {
   const response = await fetch(
-   `https://thumbnails.roproxy.com/v1/users/avatar?userIds=${userId}&size=420x420&format=Png&isCircular=false`
+   `https://www.roproxy.com/users/inventory/list-json?assetTypeId=${RobloxAPITypes.AssetTypeEnum[assetType]}&cursor=&itemsPerPage=1000&pageNumber=1&userId=${userId}`,
   );
-  return (await response.json()) as RobloxAPITypes.ThumnailAPIResponse;
+  return (await response.json()) as RobloxAPITypes.InventoryAPIResponse;
  });
 
- let currentFilters = $state({
+ type ActiveFiltersType = {
+  productName: string;
+  productPrice: { min: number | null; max: number };
+  creatorName: string;
+  excludeOffsale: boolean;
+ };
+
+ type FilterKey = keyof ActiveFiltersType;
+
+ type FilterDefinition = {
+  name: FilterKey;
+  type: "comparison" | "condition";
+  fn: (item: RobloxAPITypes.ItemElement) => boolean;
+ };
+
+ let activeFilters = $state<ActiveFiltersType>({
   productName: "",
-  productPrice: { min: 0, max: Infinity },
+  productPrice: { min: null, max: Infinity },
   creatorName: "",
+  excludeOffsale: false,
  });
 
- type FiltersType = typeof currentFilters;
-
- type FiltersKeyType = keyof FiltersType;
-
- type FiltersFnType = Array<{
-  name: FiltersKeyType;
-  type: "range" | "condition";
-  fn: (element: RobloxAPITypes.ItemElement) => boolean;
- }>;
-
- const filters: FiltersFnType = [
+ const filterDefinitions: FilterDefinition[] = [
   {
    name: "productName",
-   type: "range",
-   fn: element =>
-    !!currentFilters.productName
-     ? element.Item.Name.toLowerCase().includes(currentFilters.productName.toLowerCase())
+   type: "comparison",
+   fn: item =>
+    !!activeFilters.productName
+     ? item.Item.Name.toLowerCase().includes(
+        activeFilters.productName.toLowerCase(),
+       )
      : true,
   },
   {
    name: "productPrice",
-   type: "range",
-   fn: element =>
-    element.Product.PriceInRobux >= currentFilters.productPrice.min &&
-    element.Product.PriceInRobux <= currentFilters.productPrice.max,
+   type: "comparison",
+   fn: item =>
+    item.Product.PriceInRobux >= activeFilters.productPrice.min! &&
+    item.Product.PriceInRobux <= activeFilters.productPrice.max,
   },
   {
    name: "creatorName",
-   type: "range",
-   fn: element =>
-    !!currentFilters.creatorName
-     ? element.Creator.Name.toLowerCase().includes(
-        currentFilters.creatorName.toLowerCase()
+   type: "comparison",
+   fn: item =>
+    !!activeFilters.creatorName
+     ? item.Creator.Name.toLowerCase().includes(
+        activeFilters.creatorName.toLowerCase(),
        )
      : true,
   },
+  {
+   name: "excludeOffsale",
+   type: "condition",
+   fn: item => item.Product.IsForSale,
+  },
  ];
 
- function filterFn(element: RobloxAPITypes.ItemElement) {
-  const metConditions: Array<boolean> = [];
+ const filterFn = (item: RobloxAPITypes.ItemElement) => {
+  const filterResult: boolean[] = [];
 
-  for (const [key] of Object.entries(currentFilters)) {
-   currentFilters[key as FiltersKeyType]
-    ? metConditions.push(
-       filters.find(filter => filter.name == (key as FiltersKeyType))?.fn(element)!
+  for (const [key] of Object.entries(activeFilters)) {
+   activeFilters[key as FilterKey]
+    ? filterResult.push(
+       filterDefinitions
+        .find(filter => filter.name === (key as FilterKey))
+        ?.fn(item)!,
       )
-    : metConditions.push(true);
+    : filterResult.push(true);
   }
-  return metConditions.every(Boolean);
- }
+  return filterResult.every(Boolean);
+ };
 
  onMount(() => {
-  const id = url.searchParams.get("id");
+  const id = page.url.searchParams.get("user-id");
 
   if (id) {
    userId = +id;
@@ -94,181 +115,216 @@
  });
 </script>
 
-<form
- onsubmit={event => {
-  event.preventDefault();
-  const formData = new FormData(event.currentTarget);
-  const id = formData.get("id") as string;
+<main class="p-4">
+ <div class="space-y-2">
+  <form
+   class="flex gap-2"
+   onsubmit={event => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
 
-  url.searchParams.set("id", id);
-
-  // Update search paramaters for sharing URL
-  goto(url.toString(), {
-   replaceState: false,
-   keepFocus: true,
-  });
-
-  userId = +id;
- }}
->
- <input name="id" type="number" placeholder="User ID" value={userId} />
- <select name="asset-type" bind:value={assetType}>
-  {#each Object.entries(RobloxAPITypes.AssetTypeEnum) as [value]}
-   <option {value}>
-    {value}
-   </option>
-  {/each}
- </select>
- <button type="submit">Goto</button>
-</form>
-
-<div>
- {#each filters as { name, type }}
-  {#if type == "condition"}
-   <input
-    type="checkbox"
-    {name}
-    checked={currentFilters[name] as unknown as boolean}
-    onchange={() =>
-     (currentFilters = { ...currentFilters, [name]: !currentFilters[name] })}
+    userId = +formData.get("user-id")! as number;
+   }}
+  >
+   <Input
+    class="max-w-xs"
+    name="user-id"
+    type="number"
+    placeholder="User ID"
+    required
+    value={userId}
    />
-   <label for={name}>{name}</label>
-  {/if}
- {/each}
- <div class="flex flex-col w-40 space-y-2">
-  <input
-   type="text"
-   placeholder="Product Name"
-   oninput={event => {
-    currentFilters = {
-     ...currentFilters,
-     productName: event.currentTarget.value,
-    };
-   }}
-  />
-  <input
-   type="text"
-   placeholder="Creator Name"
-   oninput={event => {
-    currentFilters = {
-     ...currentFilters,
-     creatorName: event.currentTarget.value,
-    };
-   }}
-  />
-  <input
-   type="number"
-   placeholder="Min"
-   oninput={event => {
-    currentFilters = {
-     ...currentFilters,
-     productPrice: {
-      min: +event.currentTarget.value,
-      max: currentFilters.productPrice.max,
-     },
-    };
-   }}
-  />
-  <input
-   type="number"
-   placeholder="Max"
-   oninput={event => {
-    currentFilters = {
-     ...currentFilters,
-     productPrice: {
-      min: currentFilters.productPrice.min,
-      max: +event.currentTarget.value || Infinity,
-     },
-    };
-   }}
-  />
- </div>
-</div>
+   <Select.Root type="single" bind:value={assetType}>
+    <Select.Trigger class="w-[180px]">
+     {assetType}
+    </Select.Trigger>
+    <Select.Content>
+     {#each Object.entries(RobloxAPITypes.AssetTypeEnum).sort( ([a], [b]) => a.localeCompare(b), ) as [key]}
+      <Select.Item value={key}>{key}</Select.Item>
+     {/each}
+    </Select.Content>
+   </Select.Root>
+   <Select.Root
+    type="single"
+    bind:value={() => itemsPerPage.toString(), value => (itemsPerPage = +value)}
+   >
+    <Select.Trigger class="w-[180px]">
+     {itemsPerPage}
+    </Select.Trigger>
+    <Select.Content>
+     {#each ["5", "10", "20", "50"] as value}
+      <Select.Item {value}>{value}</Select.Item>
+     {/each}
+    </Select.Content>
+   </Select.Root>
+   <Button type="submit">Go</Button>
+  </form>
 
-{#if userId}
- {#await Promise.all([inventoryInfo, userInfo, avatarInfo])}
-  <p>Loading</p>
- {:then [inventory, user, avatar]}
-  <h1>{user.name}({user.displayName})</h1>
-  <img
-   src={avatar.data[0].imageUrl}
-   alt={`${user.name}'s avatar`}
-   width={300}
-   height={300}
-  />
-  <ul>
-   <li>
-    Robux Spent
-    <span>
-     {inventory.Data.Items.reduce((sum, item) => {
-      if (item.Creator.Id == userId) return sum;
-      return sum + (item.Product.PriceInRobux || 0);
-     }, 0)}
-    </span>
-   </li>
-   <li>
-    Total Bought:
-    <span>
-     {inventory.Data.Items.reduce((sum, item) => {
-      if (item.Creator.Id == userId) return sum;
-      return sum + 1;
-     }, 0)}
-    </span>
-   </li>
-  </ul>
-  <ul class="flex flex-wrap gap-2">
-   {#each inventory.Data.Items.filter(({ Creator }) => Creator.Id != userId) as Element}
-    {@const { Item, Product, Thumbnail, Creator } = Element}
-    <li class="max-w-[150px]" class:hidden={!filterFn(Element)}>
-     <div>
-      <a href={Item.AbsoluteUrl} rel="noopener noreferrer">
-       <img
-        src={Thumbnail.Url.replace(/110/g, "150")}
-        alt={`${Item.Name}'s Thumbnail`}
-        width={150}
-        height={150}
-       />
-      </a>
-     </div>
-     <div>
-      <div>
-       <div title={Item.Name}>
-        <a
-         class="line-clamp-2 overflow-ellipsis"
-         href={Item.AbsoluteUrl}
-         rel="noopener noreferrer"
-        >
-         {Item.Name}
-        </a>
-       </div>
-       <div>
-        <span>By:</span>
-        <a
-         class="font-bold hover:underline text-sm"
-         href={Creator.CreatorProfileLink}
-         rel="noopener noreferrer"
-        >
-         {Creator.Name}
-        </a>
-       </div>
-       <span
-        >Price: {Product.IsFree
-         ? "FREE"
-         : !Product.IsForSale && !Product.PriceInRobux
-           ? "Not for sale"
-           : !Product.IsForSale && Product.PriceInRobux
-             ? `Not for sale(${Product.PriceInRobux} Robux)`
-             : `${Product.PriceInRobux} Robux`}</span
-       >
-      </div>
-     </div>
-    </li>
+  <div class="grid w-fit grid-cols-2 gap-2">
+   <Input
+    class="max-w-xs"
+    type="text"
+    placeholder="Product Name"
+    bind:value={activeFilters.productName}
+   />
+   <Input
+    class="max-w-xs"
+    type="text"
+    placeholder="Creator Name"
+    bind:value={activeFilters.creatorName}
+   />
+   <Input
+    class="max-w-xs"
+    type="number"
+    placeholder="Min"
+    bind:value={activeFilters.productPrice.min}
+   />
+   <Input
+    class="max-w-xs"
+    type="number"
+    placeholder="Max"
+    bind:value={() => activeFilters.productPrice.max,
+    value => (activeFilters.productPrice.max = value || Infinity)}
+   />
+  </div>
+  <div>
+   {#each filterDefinitions as { name, type }}
+    {#if type == "condition"}
+     <Checkbox bind:checked={activeFilters[name] as unknown as boolean} />
+     <label for={name}>{name}</label>
+    {/if}
    {/each}
-  </ul>
- {:catch error}
-  <p>An error occured!</p>
-  <pre>{error}</pre>
- {/await}
-{:else}
- <p>No user ID</p>
-{/if}
+  </div>
+ </div>
+ {#if userId}
+  <Separator class="my-4" />
+  {#await Promise.all([inventoryInfo, userInfo, avatarInfo])}
+   <p>Loading</p>
+  {:then [inventory, user, avatar]}
+   {@const items = inventory.Data.Items.filter(
+    ({ Creator, Product }) =>
+     Creator.Id != userId && !!Product && !!Product.PriceInRobux,
+   )}
+   {@const filteredItems = items.filter(filterFn)}
+   <h1>{user.name}({user.displayName})</h1>
+   <img
+    src={avatar.data[0].imageUrl}
+    alt={`${user.name}'s avatar`}
+    width="300"
+    height="300"
+   />
+   <ul>
+    <li>
+     Robux Spent:
+     <span>
+      {items.reduce(
+       (sum, { Product }) => sum + Product.PriceInRobux,
+       0,
+      )}({filteredItems.reduce(
+       (sum, { Product }) => sum + Product.PriceInRobux,
+       0,
+      )})
+     </span>
+    </li>
+    <li>
+     Total Bought:
+     <span>
+      {items.length}
+     </span>
+    </li>
+   </ul>
+   {@const totalPages = Math.ceil(filteredItems.length / itemsPerPage)}
+   {@const startIndex = (currentPage - 1) * itemsPerPage}
+   {@const end =
+    currentPage == totalPages
+     ? filteredItems.length
+     : startIndex + itemsPerPage}
+   <Pagination.Root
+    count={filteredItems.length}
+    perPage={itemsPerPage}
+    bind:page={currentPage}
+   >
+    {#snippet children({ pages, currentPage })}
+     <span class="text-muted-foreground"
+      >Showing <span class="font-semibold text-foreground"
+       >{startIndex == 0 ? 1 : startIndex}</span
+      >
+      to
+      <span class="font-semibold text-foreground">{end}</span>
+      of
+      <span class="font-semibold text-foreground">{filteredItems.length}</span> Entries</span
+     >
+     <Pagination.Content class="mt-2">
+      <Pagination.Item>
+       <Pagination.PrevButton />
+      </Pagination.Item>
+      {#each pages as page (page.key)}
+       {#if page.type === "ellipsis"}
+        <Pagination.Item>
+         <Pagination.Ellipsis />
+        </Pagination.Item>
+       {:else}
+        <Pagination.Item>
+         <Pagination.Link {page} isActive={currentPage === page.value}>
+          {page.value}
+         </Pagination.Link>
+        </Pagination.Item>
+       {/if}
+      {/each}
+      <Pagination.Item>
+       <Pagination.NextButton />
+      </Pagination.Item>
+     </Pagination.Content>
+    {/snippet}
+   </Pagination.Root>
+   <ul class="my-4 flex flex-wrap justify-center gap-4">
+    {#each filteredItems.slice(startIndex, end) as item}
+     {@const { Item, Product, Thumbnail, Creator } = item}
+     <li class="max-w-[150px]">
+      <div>
+       <a href={Item.AbsoluteUrl} rel="noopener noreferrer">
+        <img
+         src={Thumbnail.Url.replace(/110/g, "150")}
+         alt={`${Item.Name}'s Thumbnail`}
+         width="150"
+         height="150"
+         loading="lazy"
+        />
+       </a>
+      </div>
+      <div title={Item.Name}>
+       <a
+        class="line-clamp-2 overflow-ellipsis"
+        href={Item.AbsoluteUrl}
+        rel="noopener noreferrer"
+       >
+        {Item.Name}
+       </a>
+      </div>
+      <div class="overflow-hidden overflow-ellipsis whitespace-nowrap text-sm">
+       <span>By</span>
+       <a
+        class="inline overflow-hidden overflow-ellipsis whitespace-nowrap font-bold hover:underline"
+        href={Creator.CreatorProfileLink}
+        rel="noopener noreferrer"
+       >
+        {Creator.Name}
+       </a>
+      </div>
+      <div>
+       Price:
+       <span>
+        {!Product.IsForSale && Product.PriceInRobux
+         ? `Not for sale(${Product.PriceInRobux} Robux)`
+         : `${Product.PriceInRobux} Robux`}
+       </span>
+      </div>
+     </li>
+    {/each}
+   </ul>
+  {:catch error}
+   <p>An error occured!</p>
+   <pre>{error}</pre>
+  {/await}
+ {/if}
+</main>
