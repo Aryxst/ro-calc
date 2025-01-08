@@ -146,7 +146,7 @@
    </Select.Root>
    <Select.Root
     type="single"
-    bind:value={() => itemsPerPage.toString(), value => (itemsPerPage = +value)}
+    bind:value={() => String(itemsPerPage), value => (itemsPerPage = +value)}
    >
     <Select.Trigger class="w-[180px]">
      {itemsPerPage}
